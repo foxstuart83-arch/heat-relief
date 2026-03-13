@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>USS Enterprise — Starship Command</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="app">
+    <div id="header">
+      <span class="title">⚡ USS ENTERPRISE NCC-1701 ⚡</span>
+      <span class="stardate" id="stardate">STARDATE: 2267.1</span>
+    </div>
+
+    <div id="game-wrapper">
+      <canvas id="gameCanvas" width="800" height="560"></canvas>
+
+      <div id="hud">
+        <div class="hud-panel">
+          <div class="hud-label">SHIELDS</div>
+          <div class="bar-track"><div class="bar shields-bar" id="shields-bar"></div></div>
+          <div class="hud-value" id="shields-val">100%</div>
+        </div>
+        <div class="hud-panel">
+          <div class="hud-label">ENERGY</div>
+          <div class="bar-track"><div class="bar energy-bar" id="energy-bar"></div></div>
+          <div class="hud-value" id="energy-val">100%</div>
+        </div>
+        <div class="hud-panel">
+          <div class="hud-label">SCORE</div>
+          <div class="hud-value big" id="score-val">0</div>
+        </div>
+        <div class="hud-panel">
+          <div class="hud-label">WARP CORE</div>
+          <div class="hud-value" id="warp-val">NOMINAL</div>
+        </div>
+        <div class="hud-panel">
+          <div class="hud-label">TORPEDOES</div>
+          <div class="hud-value" id="torps-val">∞</div>
+        </div>
+        <div class="hud-panel">
+          <div class="hud-label">WAVE</div>
+          <div class="hud-value big" id="wave-val">1</div>
+        </div>
+        <div class="hud-panel">
+          <div class="hud-label">CREW LIVES</div>
+          <div class="hud-value" id="lives-val">❤️ ❤️ ❤️</div>
+        </div>
+        <div class="hud-panel controls-panel">
+          <div class="hud-label">CONTROLS</div>
+          <div class="controls-text">
+            ← → ↑ ↓ Move<br/>
+            SPACE Fire Phasers<br/>
+            T  Fire Torpedo<br/>
+            S  Toggle Shields<br/>
+            W  Warp Burst
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="overlay" class="hidden">
+      <div id="overlay-box">
+        <div id="overlay-title"></div>
+        <div id="overlay-message"></div>
+        <button id="overlay-btn">ENGAGE</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="game.js"></script>
+</body>
+</html>
