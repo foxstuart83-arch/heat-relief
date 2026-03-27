@@ -6,6 +6,18 @@ const ctx    = canvas.getContext('2d');
 const W = canvas.width;
 const H = canvas.height;
 
+// ─── Cached HUD Elements ──────────────────────────────────────────────────────
+const hudStardate   = document.getElementById('stardate');
+const hudShieldsBar = document.getElementById('shields-bar');
+const hudEnergyBar  = document.getElementById('energy-bar');
+const hudShieldsVal = document.getElementById('shields-val');
+const hudEnergyVal  = document.getElementById('energy-val');
+const hudScoreVal   = document.getElementById('score-val');
+const hudWaveVal    = document.getElementById('wave-val');
+const hudWarpVal    = document.getElementById('warp-val');
+const hudTorpsVal   = document.getElementById('torps-val');
+const hudLivesVal   = document.getElementById('lives-val');
+
 // ─── Game State ───────────────────────────────────────────────────────────────
 const STATE = { MENU: 'menu', PLAYING: 'playing', DEAD: 'dead', WIN: 'win', PAUSED: 'paused' };
 let state = STATE.MENU;
@@ -177,8 +189,7 @@ function update() {
   if (state !== STATE.PLAYING) return;
 
   stardateTimer += 0.001;
-  document.getElementById('stardate').textContent =
-    'STARDATE: ' + stardateTimer.toFixed(1);
+  hudStardate.textContent = 'STARDATE: ' + stardateTimer.toFixed(1);
 
   // Stars scroll
   STARS.forEach(s => { s.y += s.speed; if (s.y > H) { s.y = 0; s.x = Math.random() * W; } });
@@ -190,7 +201,6 @@ function update() {
   let dx = 0, dy = 0;
   if (keys['ArrowLeft']  || keys['KeyA']) dx = -player.speed;
   if (keys['ArrowRight'] || keys['KeyD']) dx =  player.speed;
-  if (keys['ArrowUp']    || keys['KeyW'] && player.warpCooldown > 0) dy = -player.speed;
   if (keys['ArrowUp']    || keys['KeyK']) dy = -player.speed;
   if (keys['ArrowDown']  || keys['KeyJ']) dy =  player.speed;
 
@@ -250,48 +260,71 @@ function update() {
   enemyShots = enemyShots.filter(s => s.y < H + 10);
   enemyShots.forEach(s => { s.y += s.vy; });
 
-  // Phaser hits enemies
-  phasers.forEach((b, bi) => {
-    enemies.forEach((e, ei) => {
+  // Collision detection — index sets prevent splice-during-iteration bugs
+  const deadEnemies = new Set();
+
+  // Phaser hits enemies (one phaser = one hit)
+  phasers = phasers.filter(b => {
+    for (let ei = 0; ei < enemies.length; ei++) {
+      if (deadEnemies.has(ei)) continue;
+      const e = enemies[ei];
       if (rectsOverlap(b.x - 2, b.y - 6, 4, 12, e.x - e.w/2, e.y - e.h/2, e.w, e.h)) {
         spawnParticles(b.x, b.y, '#00ccff', 4);
-        phasers.splice(bi, 1);
         e.hp--;
         e.hitFlash = 8;
-        if (e.hp <= 0) killEnemy(ei);
+        if (e.hp <= 0) {
+          score += e.points;
+          spawnExplosion(e.x, e.y);
+          spawnParticles(e.x, e.y, enemyColor(e.type), 16);
+          deadEnemies.add(ei);
+        }
+        return false; // phaser consumed on first hit
       }
-    });
+    }
+    return true;
   });
 
-  // Torpedo hits enemies (big AOE)
-  torpedoes.forEach((t, ti) => {
-    enemies.forEach((e, ei) => {
+  // Torpedo hits enemies (AOE — can hit multiple in one shot)
+  torpedoes = torpedoes.filter(t => {
+    let hit = false;
+    for (let ei = 0; ei < enemies.length; ei++) {
+      if (deadEnemies.has(ei)) continue;
+      const e = enemies[ei];
       if (rectsOverlap(t.x - t.w/2, t.y - t.h/2, t.w, t.h, e.x - e.w/2, e.y - e.h/2, e.w, e.h)) {
-        spawnParticles(t.x, t.y, '#ff8800', 20);
-        spawnExplosion(t.x, t.y);
-        torpedoes.splice(ti, 1);
+        if (!hit) { spawnParticles(t.x, t.y, '#ff8800', 20); spawnExplosion(t.x, t.y); }
+        hit = true;
         e.hp -= 4;
         e.hitFlash = 12;
-        if (e.hp <= 0) killEnemy(ei);
+        if (e.hp <= 0) {
+          score += e.points;
+          spawnExplosion(e.x, e.y);
+          spawnParticles(e.x, e.y, enemyColor(e.type), 16);
+          deadEnemies.add(ei);
+        }
       }
-    });
+    }
+    return !hit; // torpedo consumed if it hit anything
   });
+
+  // Apply enemy deaths after all weapon passes
+  enemies = enemies.filter((_, i) => !deadEnemies.has(i));
 
   // Enemy shots hit player
   if (player.invincible <= 0) {
-    enemyShots.forEach((s, si) => {
-      if (rectsOverlap(s.x - 2, s.y - 4, 4, 8,
-                       player.x - player.w/2, player.y - player.h/2, player.w, player.h)) {
-        enemyShots.splice(si, 1);
-        spawnParticles(s.x, s.y, '#ff3300', 8);
-        if (player.shieldsOn && player.shields > 0) {
-          player.shields = Math.max(0, player.shields - 12);
-        } else {
-          player.shields = Math.max(0, player.shields - 3);
-          player.energy  = Math.max(0, player.energy  - 8);
-          if (player.shields <= 0) { hitPlayer(); }
-        }
+    enemyShots = enemyShots.filter(s => {
+      if (!rectsOverlap(s.x - 2, s.y - 4, 4, 8,
+                        player.x - player.w/2, player.y - player.h/2, player.w, player.h)) {
+        return true;
       }
+      spawnParticles(s.x, s.y, '#ff3300', 8);
+      if (player.shieldsOn && player.shields > 0) {
+        player.shields = Math.max(0, player.shields - 12);
+      } else {
+        player.shields = Math.max(0, player.shields - 3);
+        player.energy  = Math.max(0, player.energy  - 8);
+        if (player.shields <= 0) { hitPlayer(); }
+      }
+      return false;
     });
   }
 
@@ -322,13 +355,6 @@ function update() {
   updateHUD();
 }
 
-function killEnemy(idx) {
-  const e = enemies[idx];
-  score += e.points;
-  spawnExplosion(e.x, e.y);
-  spawnParticles(e.x, e.y, enemyColor(e.type), 16);
-  enemies.splice(idx, 1);
-}
 
 function hitPlayer() {
   lives--;
@@ -369,23 +395,21 @@ function spawnExplosion(x, y) {
 }
 
 function updateHUD() {
-  const sBar = document.getElementById('shields-bar');
-  const eBar = document.getElementById('energy-bar');
   const sPct = player.shields / player.maxShields;
   const ePct = player.energy  / player.maxEnergy;
-  sBar.style.width = (sPct * 100) + '%';
-  eBar.style.width = (ePct * 100) + '%';
-  sBar.style.background = sPct > 0.5 ? 'linear-gradient(90deg,#0044ff,#00aaff)'
-                        : sPct > 0.25 ? 'linear-gradient(90deg,#aa4400,#ff8800)'
-                        : 'linear-gradient(90deg,#880000,#ff2200)';
-  document.getElementById('shields-val').textContent = Math.round(player.shields) + '%';
-  document.getElementById('energy-val').textContent  = Math.round(player.energy)  + '%';
-  document.getElementById('score-val').textContent   = score;
-  document.getElementById('wave-val').textContent    = wave;
-  document.getElementById('warp-val').textContent    = player.warpCooldown > 0 ? 'COOLDOWN' : 'NOMINAL';
-  document.getElementById('torps-val').textContent   = player.torpedoReady ? '● READY' : '○ LOADING';
+  hudShieldsBar.style.width = (sPct * 100) + '%';
+  hudEnergyBar.style.width  = (ePct * 100) + '%';
+  hudShieldsBar.style.background = sPct > 0.5 ? 'linear-gradient(90deg,#1a56ff,#29b6f6)'
+                                 : sPct > 0.25 ? 'linear-gradient(90deg,#aa4400,#ff8800)'
+                                 : 'linear-gradient(90deg,#880000,#ff2200)';
+  hudShieldsVal.textContent = Math.round(player.shields) + '%';
+  hudEnergyVal.textContent  = Math.round(player.energy)  + '%';
+  hudScoreVal.textContent   = score;
+  hudWaveVal.textContent    = wave;
+  hudWarpVal.textContent    = player.warpCooldown > 0 ? 'COOLDOWN' : 'NOMINAL';
+  hudTorpsVal.textContent   = player.torpedoReady ? '● READY' : '○ LOADING';
   const hearts = '❤️ '.repeat(lives).trim() || '💀';
-  document.getElementById('lives-val').textContent = hearts;
+  hudLivesVal.textContent = hearts;
 }
 
 // ─── Enemy Colors ─────────────────────────────────────────────────────────────

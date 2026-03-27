@@ -1,0 +1,48 @@
+# Google Cloud Build — Heat Relief (USS Enterprise Starship Command)
+# Deploy to Cloud Run as a new project.
+#
+# Setup (one-time, in GCP console or gcloud CLI):
+#   gcloud projects create heat-relief-game --name="Heat Relief"
+#   gcloud billing projects link heat-relief-game --billing-account=<BILLING_ACCOUNT_ID>
+#   gcloud services enable run.googleapis.com cloudbuild.googleapis.com \
+#     containerregistry.googleapis.com --project=heat-relief-game
+#
+# Connect this repo in Cloud Build triggers with this file as the config.
+
+steps:
+  # Build the container image
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/heat-relief:$SHORT_SHA'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/heat-relief:latest'
+      - '.'
+
+  # Push to Container Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - '--all-tags'
+      - 'gcr.io/$PROJECT_ID/heat-relief'
+
+  # Deploy to Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - 'heat-relief'
+      - '--image=gcr.io/$PROJECT_ID/heat-relief:$SHORT_SHA'
+      - '--region=us-central1'
+      - '--platform=managed'
+      - '--allow-unauthenticated'
+      - '--port=8080'
+      - '--min-instances=0'
+      - '--max-instances=3'
+      - '--memory=256Mi'
+      - '--cpu=1'
+
+images:
+  - 'gcr.io/$PROJECT_ID/heat-relief'
