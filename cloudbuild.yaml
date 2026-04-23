@@ -1,48 +1,94 @@
-# Google Cloud Build — Heat Relief (USS Enterprise Starship Command)
-# Deploy to Cloud Run as a new project.
+# Google Cloud Build — Heat Relief
+# Deploys two isolated Cloud Run services:
+#   1. heat-relief      — static game (nginx), protected by Cloud IAP
+#   2. heat-relief-audit — append-only audit log service (Node.js + Firestore)
 #
-# Setup (one-time, in GCP console or gcloud CLI):
+# One-time setup (run infra/setup.sh before first deploy):
 #   gcloud projects create heat-relief-game --name="Heat Relief"
-#   gcloud billing projects link heat-relief-game --billing-account=<BILLING_ACCOUNT_ID>
-#   gcloud services enable run.googleapis.com cloudbuild.googleapis.com \
-#     containerregistry.googleapis.com --project=heat-relief-game
-#
-# Connect this repo in Cloud Build triggers with this file as the config.
+#   bash infra/setup.sh heat-relief-game
+
+substitutions:
+  _REGION: us-central1
+  _AUDIT_SA: heat-relief-audit@$PROJECT_ID.iam.gserviceaccount.com
+  _APP_SA: heat-relief-app@$PROJECT_ID.iam.gserviceaccount.com
 
 steps:
-  # Build the container image
-  - name: 'gcr.io/cloud-builders/docker'
+  # ── 1. Build main game image ─────────────────────────────────────────────────
+  - id: build-game
+    name: gcr.io/cloud-builders/docker
     args:
-      - 'build'
-      - '-t'
-      - 'gcr.io/$PROJECT_ID/heat-relief:$SHORT_SHA'
-      - '-t'
-      - 'gcr.io/$PROJECT_ID/heat-relief:latest'
-      - '.'
+      - build
+      - -t
+      - gcr.io/$PROJECT_ID/heat-relief:$SHORT_SHA
+      - -t
+      - gcr.io/$PROJECT_ID/heat-relief:latest
+      - .
 
-  # Push to Container Registry
-  - name: 'gcr.io/cloud-builders/docker'
+  # ── 2. Build audit service image ─────────────────────────────────────────────
+  - id: build-audit
+    name: gcr.io/cloud-builders/docker
     args:
-      - 'push'
-      - '--all-tags'
-      - 'gcr.io/$PROJECT_ID/heat-relief'
+      - build
+      - -t
+      - gcr.io/$PROJECT_ID/heat-relief-audit:$SHORT_SHA
+      - -t
+      - gcr.io/$PROJECT_ID/heat-relief-audit:latest
+      - ./audit-service
 
-  # Deploy to Cloud Run
-  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+  # ── 3. Push both images (parallel after builds) ───────────────────────────
+  - id: push-game
+    name: gcr.io/cloud-builders/docker
+    waitFor: [build-game]
+    args: [push, --all-tags, gcr.io/$PROJECT_ID/heat-relief]
+
+  - id: push-audit
+    name: gcr.io/cloud-builders/docker
+    waitFor: [build-audit]
+    args: [push, --all-tags, gcr.io/$PROJECT_ID/heat-relief-audit]
+
+  # ── 4. Deploy audit service — INTERNAL ONLY, no public access ─────────────
+  - id: deploy-audit
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    waitFor: [push-audit]
     entrypoint: gcloud
     args:
-      - 'run'
-      - 'deploy'
-      - 'heat-relief'
-      - '--image=gcr.io/$PROJECT_ID/heat-relief:$SHORT_SHA'
-      - '--region=us-central1'
-      - '--platform=managed'
-      - '--allow-unauthenticated'
-      - '--port=8080'
-      - '--min-instances=0'
-      - '--max-instances=3'
-      - '--memory=256Mi'
-      - '--cpu=1'
+      - run
+      - deploy
+      - heat-relief-audit
+      - --image=gcr.io/$PROJECT_ID/heat-relief-audit:$SHORT_SHA
+      - --region=$_REGION
+      - --platform=managed
+      - --no-allow-unauthenticated          # internal service: IAM auth required
+      - --ingress=internal                  # reachable only from within GCP project
+      - --port=8080
+      - --min-instances=0
+      - --max-instances=2
+      - --memory=256Mi
+      - --cpu=1
+      - --service-account=$_AUDIT_SA
+      - --set-env-vars=ALLOWED_SERVICE_ACCOUNTS=$_APP_SA
+
+  # ── 5. Deploy main game — IAP enforced, no direct unauthenticated access ────
+  - id: deploy-game
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    waitFor: [push-game, deploy-audit]
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - heat-relief
+      - --image=gcr.io/$PROJECT_ID/heat-relief:$SHORT_SHA
+      - --region=$_REGION
+      - --platform=managed
+      - --no-allow-unauthenticated          # access controlled via Cloud IAP
+      - --port=8080
+      - --min-instances=0
+      - --max-instances=3
+      - --memory=256Mi
+      - --cpu=1
+      - --service-account=$_APP_SA
+      - --set-env-vars=HEAT_RELIEF_REQUIRE_IAP=true
 
 images:
-  - 'gcr.io/$PROJECT_ID/heat-relief'
+  - gcr.io/$PROJECT_ID/heat-relief
+  - gcr.io/$PROJECT_ID/heat-relief-audit

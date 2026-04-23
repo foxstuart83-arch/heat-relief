@@ -1,0 +1,35 @@
+// Firestore Security Rules — audit-logs database
+//
+// Deploy with:
+//   firebase deploy --only firestore:rules --project <PROJECT_ID>
+//
+// Target database: audit-logs  (NOT the default app database)
+//
+// Design:
+//   - The audit service writes via the Admin SDK, which BYPASSES these rules.
+//     These rules therefore protect against any client-side or accidental access.
+//   - No client (browser, mobile app, external caller) can read or write events.
+//   - The Admin SDK service account is the sole writer — append-only by code contract.
+//   - There is deliberately no "allow update" or "allow delete" — immutability
+//     is enforced both here and in the application code (add() only, never set/update/delete).
+
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/audit-logs/documents {
+
+    // Lock down everything by default
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Audit events collection: no client access whatsoever
+    // Admin SDK writes bypass these rules — that is the only write path.
+    match /events/{eventId} {
+      allow read:   if false;
+      allow create: if false;  // Admin SDK bypasses; client SDK blocked
+      allow update: if false;  // immutability: updates are never permitted
+      allow delete: if false;  // immutability: deletes are never permitted
+    }
+  }
+}
